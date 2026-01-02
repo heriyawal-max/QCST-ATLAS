@@ -12,7 +12,7 @@ import {
 import { supabase } from './supabaseClient';
 // CHART
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-
+import logoAtlas from './assets/logo_atlas.png'
 // =========================================
 // ASSETS
 // =========================================
