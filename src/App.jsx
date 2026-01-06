@@ -291,16 +291,98 @@ function App() {
 
   useEffect(() => { const h = new Date().getHours(); if (h >= 4 && h < 10) setGreeting("Selamat Pagi"); else if (h >= 10 && h < 15) setGreeting("Selamat Siang"); else if (h >= 15 && h < 18) setGreeting("Selamat Sore"); else setGreeting("Selamat Malam"); }, []);
   useEffect(() => { function handleClickOutside(e) { if (profileMenuRef.current && !profileMenuRef.current.contains(e.target)) setShowProfileMenu(false); } document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, []);
-  useEffect(() => { const s = localStorage.getItem('atlas_session'); if (s) { try { setSession(JSON.parse(s)); setView('dashboard'); } catch (e) { localStorage.removeItem('atlas_session'); } } }, []);
+// KODE BARU (Session Resmi)
+useEffect(() => {
+  // 1. Cek sesi saat aplikasi dibuka
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session) {
+      // Ambil data detail user dari tabel app_users
+      fetchUserProfile(session.user.email); 
+    }
+  });
+
+  // 2. Dengarkan jika user Login/Logout
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    if (session) {
+      fetchUserProfile(session.user.email);
+    } else {
+      setSession(null);
+      setView('login');
+    }
+  });
+
+  return () => subscription.unsubscribe();
+}, []);
+
+// Fungsi bantu untuk ambil data Role & Nama
+const fetchUserProfile = async (email) => {
+  try {
+    const { data, error } = await supabase
+      .from('app_users')
+      .select('*')
+      .eq('email', email)
+      .single();
+    
+    if (data) {
+      // Gabungkan data Auth + Data Profil Database
+      setSession({ ...data, id: data.id }); // Pastikan ID mengacu ke app_users
+      setView('dashboard');
+    }
+  } catch (err) {
+    console.error("Gagal load profil:", err);
+  }
+};
   useEffect(() => { const h = (e) => { e.preventDefault(); setDeferredPrompt(e); }; window.addEventListener('beforeinstallprompt', h); return () => window.removeEventListener('beforeinstallprompt', h); }, []);
 
   const addToast = (msg, type = 'info') => { const id = Date.now(); setToasts(p => [...p, { id, message: msg, type }]); setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000); };
   const removeToast = (id) => setToasts(p => p.filter(t => t.id !== id));
   const handleInstallClick = async () => { if (!deferredPrompt) return; deferredPrompt.prompt(); setDeferredPrompt(null); };
 
-  const handleLogin = async (e) => { e.preventDefault(); setLoading(true); try { const { data, error } = await supabase.from('app_users').select('*').eq('username', loginForm.username).eq('password', loginForm.password).single(); if (error || !data) throw new Error("Akun tidak ditemukan / password salah."); setSession(data); setView('dashboard'); addToast(`Selamat datang, ${data.full_name}!`, 'success'); if (loginForm.remember) localStorage.setItem('atlas_session', JSON.stringify(data)); else localStorage.removeItem('atlas_session'); logActivity("LOGIN", "User masuk ke sistem"); } catch (err) { addToast(err.message, 'error'); } finally { setLoading(false); } };
-  const handleLogout = () => { logActivity("LOGOUT", "User keluar sistem"); setSession(null); setView('login'); setLoginForm({username:'', password:'', remember: false}); setCart([]); localStorage.removeItem('atlas_session'); };
-  const openProfileModal = () => { setMyProfileForm({ full_name: session.full_name, password: session.password }); setShowProfileModal(true); setShowProfileMenu(false); };
+// KODE BARU (Login Tembus RLS)
+const handleLogin = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  
+  try {
+    // 1. Minta tiket masuk resmi ke Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: loginForm.username, // Asumsi inputnya adalah EMAIL
+      password: loginForm.password,
+    });
+
+    if (authError) throw new Error(authError.message);
+
+    // 2. Jika sukses, ambil data nama & role dari tabel app_users
+    const { data: userData, error: userError } = await supabase
+      .from('app_users')
+      .select('*')
+      .eq('email', authData.user.email)
+      .single();
+
+    if (userError || !userData) throw new Error("User login sukses, tapi data profil tidak ditemukan.");
+
+    // 3. Simpan sesi
+    setSession(userData);
+    setView('dashboard');
+    addToast(`Selamat datang, ${userData.full_name}!`, 'success');
+    
+    logActivity("LOGIN", "User masuk ke sistem");
+
+  } catch (err) {
+    addToast("Login Gagal: " + err.message, 'error');
+  } finally {
+    setLoading(false);
+  }
+};
+  const handleLogout = async () => {
+  logActivity("LOGOUT", "User keluar sistem");
+  await supabase.auth.signOut(); // Logout resmi dari server
+  setSession(null);
+  setView('login');
+  setLoginForm({ username: '', password: '', remember: false });
+  setCart([]);
+};
+ const openProfileModal = () => { setMyProfileForm({ full_name: session.full_name, password: session.password }); setShowProfileModal(true); setShowProfileMenu(false); };
   const handleUpdateProfile = async () => { if (!myProfileForm.full_name || !myProfileForm.password) return addToast("Data tidak lengkap!", "error"); setLoading(true); try { const { error } = await supabase.from('app_users').update({ full_name: myProfileForm.full_name, password: myProfileForm.password }).eq('id', session.id); if (error) throw error; const newSession = { ...session, full_name: myProfileForm.full_name, password: myProfileForm.password }; setSession(newSession); if (localStorage.getItem('atlas_session')) { localStorage.setItem('atlas_session', JSON.stringify(newSession)); } addToast("Profil diperbarui!", "success"); setShowProfileModal(false); logActivity("UPDATE PROFILE", "Mengubah nama/password sendiri"); } catch (err) { addToast("Gagal: " + err.message, "error"); } finally { setLoading(false); } };
 
   const triggerConfirm = (title, message, type, action) => { setConfirmModal({ isOpen: true, title, message, type, onConfirm: action }); };
