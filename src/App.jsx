@@ -383,7 +383,50 @@ const handleLogin = async (e) => {
   setCart([]);
 };
  const openProfileModal = () => { setMyProfileForm({ full_name: session.full_name, password: session.password }); setShowProfileModal(true); setShowProfileMenu(false); };
-  const handleUpdateProfile = async () => { if (!myProfileForm.full_name || !myProfileForm.password) return addToast("Data tidak lengkap!", "error"); setLoading(true); try { const { error } = await supabase.from('app_users').update({ full_name: myProfileForm.full_name, password: myProfileForm.password }).eq('id', session.id); if (error) throw error; const newSession = { ...session, full_name: myProfileForm.full_name, password: myProfileForm.password }; setSession(newSession); if (localStorage.getItem('atlas_session')) { localStorage.setItem('atlas_session', JSON.stringify(newSession)); } addToast("Profil diperbarui!", "success"); setShowProfileModal(false); logActivity("UPDATE PROFILE", "Mengubah nama/password sendiri"); } catch (err) { addToast("Gagal: " + err.message, "error"); } finally { setLoading(false); } };
+  const handleUpdateProfile = async () => {
+  if (!myProfileForm.full_name || !myProfileForm.password) 
+    return addToast("Data tidak lengkap!", "error");
+  
+  setLoading(true);
+  try {
+    // 1. UPDATE KE SISTEM LOGIN RESMI (Supabase Auth)
+    // Ini yang bikin password login benar-benar berubah
+    const { error: authError } = await supabase.auth.updateUser({
+      password: myProfileForm.password
+    });
+
+    if (authError) throw authError;
+
+    // 2. UPDATE KE TABEL APP_USERS (Buku Tamu)
+    // Ini supaya data di tabel tetap rapi/sama
+    const { error: tableError } = await supabase
+      .from('app_users')
+      .update({ 
+        full_name: myProfileForm.full_name, 
+        password: myProfileForm.password // Simpan juga di sini sebagai arsip
+      })
+      .eq('email', session.email); // Pastikan pakai EMAIL sebagai kunci pencarian
+
+    if (tableError) throw tableError;
+
+    // 3. Update Session Lokal
+    const newSession = { 
+      ...session, 
+      full_name: myProfileForm.full_name, 
+      password: myProfileForm.password 
+    };
+    setSession(newSession);
+    
+    addToast("Password & Profil BERHASIL diperbarui!", "success");
+    setShowProfileModal(false);
+    logActivity("UPDATE PROFILE", "Mengubah password sendiri");
+
+  } catch (err) {
+    addToast("Gagal: " + err.message, "error");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const triggerConfirm = (title, message, type, action) => { setConfirmModal({ isOpen: true, title, message, type, onConfirm: action }); };
   const closeConfirm = () => { setConfirmModal({ ...confirmModal, isOpen: false }); };
