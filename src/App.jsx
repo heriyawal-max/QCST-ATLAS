@@ -130,7 +130,17 @@ function App() {
   const [uploadingId, setUploadingId] = useState(null);
   const [isCartOpen, setIsCartOpen] = useState(false); 
   const [isUserFormOpen, setIsUserFormOpen] = useState(false);
-
+  const [expandedTickets, setExpandedTickets] = useState([]);
+  // 👇 FUNGSI BARU: Logika Buka/Tutup Tiket
+  const toggleTicket = (id) => {
+    if (expandedTickets.includes(id)) {
+      // Kalau sudah ada, buang dari list (Tutup)
+      setExpandedTickets(expandedTickets.filter(t => t !== id));
+    } else {
+      // Kalau belum ada, masukkan ke list (Buka)
+      setExpandedTickets([...expandedTickets, id]);
+    }
+  };
   // FORM ORDER
   const [orderForm, setOrderForm] = useState({ 
     material: '', params: [], isSelfService: false, quantity: 1, specificName: '', oxideMethod: '', description: '' 
@@ -399,8 +409,256 @@ function App() {
             {view === 'order' && ( <div className="flex flex-col lg:flex-row gap-6 h-full animate-fade-in"> <div className="flex-1 overflow-y-auto pb-48"> <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8"> <h2 className="text-xl font-bold mb-8 flex items-center gap-3 text-red-800 border-b pb-4"><FlaskConical className="text-red-600"/> Formulir Pengajuan Uji</h2> {isLoadingMaterials ? <div className="text-center py-10"><Activity className="animate-spin text-red-600 mx-auto mb-2"/><p className="text-sm text-slate-500">Memuat konfigurasi material...</p></div> : ( <div className="space-y-8"> <div><label className="text-xs font-bold text-slate-500 uppercase mb-3 block tracking-wider">1. Pilih Material</label> <div className="grid grid-cols-2 md:grid-cols-3 gap-3"> {materialOrder.map(m => ( <button key={m} onClick={() => setOrderForm({...orderForm, material: m, params: [], specificName: ''})} className={`p-4 rounded-lg border-2 text-left text-sm font-bold transition-all ${orderForm.material === m ? 'border-red-600 bg-red-50 text-red-800 shadow-sm' : 'border-slate-100 hover:border-slate-300 text-slate-600'}`}> {m} </button> ))} </div> </div> {(orderForm.material === 'Raw Material' || orderForm.material === 'AFR') && (<div className="bg-slate-50 p-5 rounded-lg border-2 border-slate-200 animate-fade-in"><label className="block text-sm font-bold text-slate-700 mb-2">Sebutkan Nama Spesifik {orderForm.material} <span className="text-red-600">*</span></label><input type="text" placeholder="Contoh: Batu Kapur, Sekam Padi..." className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none bg-white font-medium" value={orderForm.specificName} onChange={(e) => setOrderForm({...orderForm, specificName: e.target.value})} /></div>)} <div><label className="text-xs font-bold text-slate-500 uppercase mb-3 block tracking-wider">2. Parameter Uji <span className="text-red-600">*</span></label> <div className="grid grid-cols-2 md:grid-cols-4 gap-2"> {materialsConfig[orderForm.material]?.map(p => (<button key={p} onClick={() => toggleParam(p)} className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${orderForm.params.includes(p) ? 'bg-red-800 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'}`}>{orderForm.params.includes(p) ? <CheckCircle size={14}/> : <div className="w-3.5 h-3.5 border-2 rounded-full border-slate-300"/>} {p}</button>)) || <p className="text-slate-400 text-sm italic col-span-4">Belum ada parameter untuk material ini.</p>} </div></div> {orderForm.params.includes('Oksida') && (<div className="bg-slate-50 p-5 rounded-lg border-2 border-slate-200 animate-fade-in"><label className="block text-sm font-bold text-slate-700 mb-3">Metode Uji Oksida <span className="text-red-600">*</span></label><div className="flex flex-col md:flex-row gap-4"><label className="flex items-center gap-3 cursor-pointer p-3 border rounded-lg hover:bg-white transition-all bg-white"><input type="radio" name="oxide" value="Fusebead" className="accent-red-600 w-4 h-4" onChange={(e) => setOrderForm({...orderForm, oxideMethod: e.target.value})} /><span className="text-sm font-medium">Fusebead</span></label><label className="flex items-center gap-3 cursor-pointer p-3 border rounded-lg hover:bg-white transition-all bg-white"><input type="radio" name="oxide" value="Pressed Pellet" className="accent-red-600 w-4 h-4" onChange={(e) => setOrderForm({...orderForm, oxideMethod: e.target.value})} /><span className="text-sm font-medium">Pressed Pellet</span></label></div></div>)} <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t"> <div><label className="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-wider">Jumlah Sampel</label><input type="number" min="1" max="50" className="w-full p-4 border-2 border-slate-200 rounded-lg font-bold text-lg text-slate-800 focus:border-red-600 outline-none" value={orderForm.quantity} onChange={(e) => { const val = e.target.value; setOrderForm({...orderForm, quantity: val === '' ? '' : parseInt(val)}) }} /></div> <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-lg border-2 border-amber-100 hover:border-amber-200 transition-all cursor-pointer" onClick={() => setOrderForm({...orderForm, isSelfService: !orderForm.isSelfService})}><input type="checkbox" className="w-5 h-5 accent-amber-600 pointer-events-none" checked={orderForm.isSelfService} readOnly /><div><p className="text-sm font-bold text-amber-900">Mode Self Service</p><p className="text-xs text-amber-700 mt-0.5">Uji mandiri oleh user (Tanpa Laporan)</p></div></div> </div> <div className="pt-2"><label className="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-wider">Keterangan Tambahan (Opsional)</label><input type="text" placeholder="Contoh: Output Silo, Stream Sample, Kondisi basah..." className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none bg-slate-50 font-medium text-sm" value={orderForm.description} onChange={(e) => setOrderForm({...orderForm, description: e.target.value})} /></div> <button onClick={addToCart} className="w-full bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold shadow-lg hover:shadow-xl transition-all flex justify-center items-center gap-3 tracking-wider text-sm mt-4"><Plus size={20}/> TAMBAHKAN KE LIST</button> </div> )} </div> </div> <div className={`fixed bottom-0 left-0 w-full lg:static lg:w-96 bg-white border-t lg:border-l border-slate-200 shadow-[0_-10px_30px_-15px_rgba(0,0,0,0.1)] lg:shadow-none z-20 transition-all duration-300 flex flex-col ${isCartOpen ? 'h-[70vh]' : 'h-auto'} lg:h-auto ${cart.length > 0 ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'}`}> <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white cursor-pointer lg:cursor-default" onClick={() => setIsCartOpen(!isCartOpen)}> <div className="flex items-center gap-2"><div className="lg:hidden text-slate-400">{isCartOpen ? <ChevronRight className="rotate-90" size={20}/> : <ChevronRight className="-rotate-90" size={20}/>}</div><h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><ShoppingCart className="text-red-700"/> <span className="text-sm md:text-lg">List Sampel ({cart.length})</span></h3></div><button onClick={(e) => { e.stopPropagation(); setCart([]); }} className="text-red-500 text-xs font-bold hover:underline uppercase tracking-wider">Hapus Semua</button> </div> <div className={`flex-1 overflow-y-auto space-y-3 p-4 bg-slate-50 ${isCartOpen ? 'block' : 'hidden lg:block'}`}> {cart.map(item => ( <div key={item.id} className="bg-white p-4 rounded-lg border border-slate-200 text-sm relative group hover:border-red-200 hover:shadow-sm transition-all shadow-sm"> <button onClick={() => setCart(cart.filter(x => x.id !== item.id))} className="absolute top-3 right-3 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button> <p className="font-bold text-slate-800 text-base">{item.specificName}</p> <p className="text-xs text-slate-500 mt-1 font-medium">{item.params.join(', ')}</p> {item.description && (<p className="text-xs text-slate-500 mt-1 italic flex items-start gap-1"><MessageSquare size={10} className="mt-0.5 shrink-0"/> {item.description}</p>)} <div className="flex gap-2 mt-2">{item.oxideMethod && <span className="text-[10px] bg-purple-50 text-purple-700 px-2 py-1 rounded font-bold border border-purple-100">{item.oxideMethod}</span>}{item.isSelfService && <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-1 rounded font-bold border border-amber-100">Mandiri</span>}</div> </div> ))} {cart.length === 0 && <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-lg p-4"><FlaskConical size={40} className="mb-2 opacity-20"/><p className="text-sm font-medium">Belum ada sampel</p></div>} </div> <div className="p-4 bg-white border-t border-slate-200"><button onClick={handleCheckout} disabled={cart.length===0} className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white py-3 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:shadow-none tracking-wider text-sm flex items-center justify-center gap-2 transition-all">{loading ? 'MEMPROSES...' : <><FileCheck size={18}/> KIRIM PERMINTAAN</>}</button></div> </div> </div> )}
             {view === 'history' || view === 'admin_requests' ? ( <div className="max-w-6xl mx-auto animate-fade-in"> <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6"> <div className="flex flex-col lg:flex-row justify-between items-center gap-4"> <h2 className="text-2xl font-bold text-slate-800 tracking-tight whitespace-nowrap">{view === 'history' ? 'Riwayat Permintaan' : 'Daftar Permintaan'}</h2> <div className="flex flex-col md:flex-row gap-2 w-full lg:w-auto"> <div className="relative flex-1 min-w-[200px]"><input type="text" placeholder="Cari tiket/nama..." className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:border-red-600 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /><Search className="absolute left-3 top-2.5 text-slate-400" size={16} /></div> <div className="flex gap-2"><div className="relative"><input type="date" className={`pl-3 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-red-600 outline-none w-36 transition-colors ${dateFilter.start ? 'text-slate-700 font-bold' : 'text-slate-400'}`} value={dateFilter.start} onChange={(e) => setDateFilter({...dateFilter, start: e.target.value})} title="Dari Tanggal" /></div><span className="self-center text-slate-400 font-bold">-</span><div className="relative"><input type="date" className={`pl-3 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-red-600 outline-none w-36 transition-colors ${dateFilter.end ? 'text-slate-700 font-bold' : 'text-slate-400'}`} value={dateFilter.end} onChange={(e) => setDateFilter({...dateFilter, end: e.target.value})} title="Sampai Tanggal" /></div></div> <button onClick={handleExportExcel} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm whitespace-nowrap"><FileSpreadsheet size={18}/> Excel</button> <button onClick={fetchTableRequests} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg border border-slate-200"><RefreshCw size={18}/></button> </div> </div> </div> <div className="space-y-6"> 
             {isDataLoading ? (
-                <> <RequestSkeleton/><RequestSkeleton/><RequestSkeleton/> </>
-            ) : filteredRequests.length === 0 ? (<div className="text-center py-10 text-slate-400"><Search size={48} className="mx-auto mb-2 opacity-20"/><p>Tidak ditemukan data yang cocok.</p></div>) : filteredRequests.map(req => ( <div key={req.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition-all"> <div className="p-5 bg-slate-50/80 border-b border-slate-100 flex flex-col md:flex-row md:justify-between md:items-center gap-4"> <div className="flex-1"><div className="flex items-center gap-3 mb-2"><span className="font-mono font-extrabold text-red-700 text-xl tracking-tight">{req.ticket_number}</span>{(session.role === 'admin' || session.role === 'analyst') && (<select value={req.status} onChange={(e) => updateStatus(req.id, e.target.value)} className="text-xs font-bold border-2 border-slate-300 rounded px-2 py-1 bg-white text-slate-700 outline-none focus:border-red-500 cursor-pointer"><option>Permintaan Terkirim</option><option>Diterima Lab</option><option>Diproses</option><option>Selesai</option><option>Dibatalkan</option></select>)}</div><StatusTracker status={req.status} /><div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-slate-500 font-medium"><span>📅 {new Date(req.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}</span><span>👤 {req.creator?.full_name}</span></div></div> <div className="flex items-center gap-3 flex-wrap justify-end"> {(session.role === 'user' || session.role === 'admin') && <button onClick={() => handleReorder(req)} className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 hover:border-blue-300 rounded-lg text-xs font-bold transition-all flex items-center gap-2 shadow-sm" title="Ajukan Lagi"><RefreshCw size={14}/> Ajukan Lagi</button>} {(session.role === 'admin' || session.role === 'manager' || session.role === 'analyst') && (<label className={`flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 shadow-sm cursor-pointer transition-all ${uploadingId === req.id ? 'opacity-50 pointer-events-none' : ''}`}>{uploadingId === req.id ? <span className="animate-pulse font-bold">Mengupload...</span> : <><Upload size={16}/> {req.result_pdf_url ? 'Revisi PDF' : 'Upload Hasil'}</>}<input type="file" accept="application/pdf" className="hidden" onChange={(e) => uploadResult(e, req.id)} /></label>)} {(session.role === 'manager' && req.result_pdf_url && !req.validated_by) && (<div className="flex gap-2"><a href={req.result_pdf_url} target="_blank" className="flex items-center gap-2 bg-cyan-100 text-cyan-800 px-4 py-2 rounded-lg text-xs font-bold hover:bg-cyan-200 shadow-sm transition-all"><Eye size={16}/> Periksa</a><button onClick={() => handleValidate(req.id)} className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-orange-600 shadow-sm transition-all animate-pulse border-b-2 border-orange-700"><ShieldCheck size={16}/> Validasi (ACC)</button></div>)} {isFullSelfService(req.samples) ? (<span className="text-xs font-bold text-amber-700 bg-amber-50 px-4 py-2 rounded-lg border border-amber-200 flex items-center gap-2"><CheckCircle size={14}/> Selesai (Mandiri)</span>) : (req.result_pdf_url ? ((req.validated_by || session.role !== 'user') ? (<a href={req.result_pdf_url} target="_blank" className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-green-500 shadow-sm transition-all border-b-2 border-green-800"><FileCheck size={16}/> {req.validated_by ? 'Download Laporan' : 'Draft Laporan'}</a>) : (<span className="text-xs text-orange-600 font-bold bg-orange-50 px-4 py-2 rounded-lg flex items-center gap-2 border border-orange-100"><Lock size={14}/> Menunggu Validasi Manager</span>)) : (req.status !== 'Dibatalkan' && <span className="text-xs text-slate-400 font-bold italic bg-slate-100 px-4 py-2 rounded-lg border border-slate-200 flex items-center gap-2"><Activity size={14} className="animate-spin opacity-50"/> Proses di Lab...</span>))} {(req.status === 'Permintaan Terkirim' || session.role === 'admin') && (<button onClick={() => handleDeleteRequest(req.id)} className="p-2.5 text-slate-400 hover:text-red-600 bg-white hover:bg-red-50 border-2 border-slate-200 hover:border-red-200 rounded-lg transition-all" title="Hapus Permintaan"><Trash2 size={16}/></button>)} </div> </div> <div className="p-0 overflow-x-auto"> <table className="w-full text-sm min-w-[600px]"> <thead><tr className="text-left text-xs font-bold text-slate-500 uppercase bg-slate-50/50 border-b border-slate-100"><th className="py-3 px-5">Material / Sampel</th><th className="py-3 px-2">Parameter Uji</th><th className="py-3 px-2">Metode / Keterangan</th><th className="py-3 px-5 text-right">Tipe Layanan</th></tr></thead> <tbody className="divide-y divide-slate-100"> {(req.samples || []).map(s => ( <tr key={s.id} className="hover:bg-slate-50/50 transition-colors"> <td className="py-4 px-5 font-bold text-slate-800"> {s.specific_name || s.material_type} {s.description && (<div className="text-[10px] text-slate-500 font-medium italic mt-1 flex items-center gap-1"><MessageSquare size={10}/> {s.description}</div>)} </td> <td className="py-4 px-2 text-slate-600 font-medium text-xs">{s.parameters.join(', ')}</td> <td className="py-4 px-2 text-xs font-bold">{s.oxide_method ? <span className="text-purple-700 bg-purple-50 px-2 py-1 rounded border border-purple-100">{s.oxide_method}</span> : '-'}</td> <td className="py-4 px-5 text-right">{s.is_self_service ? <span className="text-[10px] uppercase font-bold bg-amber-50 text-amber-700 px-2 py-1 rounded border border-amber-100">Mandiri</span> : <span className="text-[10px] uppercase font-bold bg-blue-50 text-blue-700 px-2 py-1 rounded border border-blue-100">Full Service</span>}</td> </tr> ))} </tbody> </table> </div> </div> ))} </div> </div> ) : null}
+  // TAMPILAN LOADING
+  <>
+    <RequestSkeleton />
+    <RequestSkeleton />
+    <RequestSkeleton />
+  </>
+) : filteredRequests.length === 0 ? (
+  // TAMPILAN JIKA DATA KOSONG
+  <div className="text-center py-10 text-slate-400">
+    <Search size={48} className="mx-auto mb-2 opacity-20" />
+    <p>Tidak ditemukan data yang cocok.</p>
+  </div>
+) : (
+  // TAMPILAN DATA (Accordion Baru)
+  <div className="space-y-4">
+    {filteredRequests.map((req) => {
+      // 1. Cek apakah tiket ini sedang dibuka detailnya?
+      const isExpanded = expandedTickets.includes(req.id);
+
+      return (
+        <div
+          key={req.id}
+          className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition-all mb-4"
+        >
+          {/* --- BAGIAN ATAS (SELALU MUNCUL) --- */}
+          <div
+            className="p-5 bg-slate-50/80 border-b border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors"
+            onClick={() => toggleTicket(req.id)}
+          >
+            <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
+              {/* KOLOM KIRI: Info Tiket & Status Tracker */}
+              <div className="flex-1 w-full">
+                <div className="flex items-center gap-3 mb-2">
+                  <div
+                    className={`transition-transform duration-300 ${
+                      isExpanded ? "rotate-180" : "rotate-0"
+                    }`}
+                  >
+                    <ChevronDown size={20} className="text-slate-400" />
+                  </div>
+                  <span className="font-mono font-extrabold text-red-700 text-xl tracking-tight">
+                    {req.ticket_number}
+                  </span>
+
+                  {(session.role === "admin" || session.role === "analyst") && (
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={req.status}
+                        onChange={(e) => updateStatus(req.id, e.target.value)}
+                        className="text-xs font-bold border-2 border-slate-300 rounded px-2 py-1 bg-white text-slate-700 outline-none focus:border-red-500 cursor-pointer"
+                      >
+                        <option>Permintaan Terkirim</option>
+                        <option>Diterima Lab</option>
+                        <option>Diproses</option>
+                        <option>Selesai</option>
+                        <option>Dibatalkan</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* STATUS TRACKER */}
+                <div className="mt-2 mb-2">
+                  <StatusTracker status={req.status} />
+                </div>
+
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-slate-500 font-medium pl-8">
+                  <span>
+                    📅{" "}
+                    {new Date(req.created_at).toLocaleString("id-ID", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </span>
+                  <span>👤 {req.creator?.full_name}</span>
+                  <span className="font-bold text-slate-600 bg-slate-200 px-2 rounded-full">
+                    {req.samples?.length || 0} Sampel
+                  </span>
+                </div>
+              </div>
+
+              {/* KOLOM KANAN: Tombol Aksi */}
+              <div
+                className="flex items-center gap-3 flex-wrap justify-end md:w-auto w-full pl-8 md:pl-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {(session.role === "user" || session.role === "admin") && (
+                  <button
+                    onClick={() => handleReorder(req)}
+                    className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 hover:border-blue-300 rounded-lg text-xs font-bold transition-all flex items-center gap-2 shadow-sm"
+                    title="Ajukan Lagi"
+                  >
+                    <RefreshCw size={14} /> Ajukan Lagi
+                  </button>
+                )}
+
+                {(session.role === "admin" ||
+                  session.role === "manager" ||
+                  session.role === "analyst") && (
+                  <label
+                    className={`flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-700 shadow-sm cursor-pointer transition-all ${
+                      uploadingId === req.id ? "opacity-50 pointer-events-none" : ""
+                    }`}
+                  >
+                    {uploadingId === req.id ? (
+                      <span className="animate-pulse font-bold">Mengupload...</span>
+                    ) : (
+                      <>
+                        <Upload size={16} />{" "}
+                        {req.result_pdf_url ? "Revisi PDF" : "Upload Hasil"}
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={(e) => uploadResult(e, req.id)}
+                    />
+                  </label>
+                )}
+
+                {session.role === "manager" &&
+                  req.result_pdf_url &&
+                  !req.validated_by && (
+                    <div className="flex gap-2">
+                      <a
+                        href={req.result_pdf_url}
+                        target="_blank"
+                        className="flex items-center gap-2 bg-cyan-100 text-cyan-800 px-4 py-2 rounded-lg text-xs font-bold hover:bg-cyan-200 shadow-sm transition-all"
+                      >
+                        <Eye size={16} /> Periksa
+                      </a>
+                      <button
+                        onClick={() => handleValidate(req.id)}
+                        className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-orange-600 shadow-sm transition-all animate-pulse border-b-2 border-orange-700"
+                      >
+                        <ShieldCheck size={16} /> Validasi (ACC)
+                      </button>
+                    </div>
+                  )}
+
+                {isFullSelfService(req.samples) ? (
+                  <span className="text-xs font-bold text-amber-700 bg-amber-50 px-4 py-2 rounded-lg border border-amber-200 flex items-center gap-2">
+                    <CheckCircle size={14} /> Selesai (Mandiri)
+                  </span>
+                ) : req.result_pdf_url ? (
+                  req.validated_by || session.role !== "user" ? (
+                    <a
+                      href={req.result_pdf_url}
+                      target="_blank"
+                      className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-green-500 shadow-sm transition-all border-b-2 border-green-800"
+                    >
+                      <FileCheck size={16} />{" "}
+                      {req.validated_by ? "Download Laporan" : "Draft Laporan"}
+                    </a>
+                  ) : (
+                    <span className="text-xs text-orange-600 font-bold bg-orange-50 px-4 py-2 rounded-lg flex items-center gap-2 border border-orange-100">
+                      <Lock size={14} /> Menunggu Validasi Manager
+                    </span>
+                  )
+                ) : (
+                  req.status !== "Dibatalkan" && (
+                    <span className="text-xs text-slate-400 font-bold italic bg-slate-100 px-4 py-2 rounded-lg border border-slate-200 flex items-center gap-2">
+                      <Activity size={14} className="animate-spin opacity-50" />{" "}
+                      Proses di Lab...
+                    </span>
+                  )
+                )}
+
+                {(req.status === "Permintaan Terkirim" ||
+                  session.role === "admin") && (
+                  <button
+                    onClick={() => handleDeleteRequest(req.id)}
+                    className="p-2.5 text-slate-400 hover:text-red-600 bg-white hover:bg-red-50 border-2 border-slate-200 hover:border-red-200 rounded-lg transition-all"
+                    title="Hapus Permintaan"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* --- BAGIAN BAWAH (TABEL) --- */}
+          {isExpanded && (
+            <div className="p-0 overflow-x-auto animate-fade-in-down border-t border-slate-100">
+              <table className="w-full text-sm min-w-[600px]">
+                <thead>
+                  <tr className="text-left text-xs font-bold text-slate-500 uppercase bg-slate-50/50 border-b border-slate-100">
+                    <th className="py-3 px-5">Material / Sampel</th>
+                    <th className="py-3 px-2">Parameter Uji</th>
+                    <th className="py-3 px-2">Metode / Keterangan</th>
+                    <th className="py-3 px-5 text-right">Tipe Layanan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(req.samples || []).map((s) => (
+                    <tr
+                      key={s.id}
+                      className="hover:bg-slate-50/50 transition-colors"
+                    >
+                      <td className="py-4 px-5 font-bold text-slate-800">
+                        {s.specific_name || s.material_type}
+                        {s.description && (
+                          <div className="text-[10px] text-slate-500 font-medium italic mt-1 flex items-center gap-1">
+                            <MessageSquare size={10} /> {s.description}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-4 px-2 text-slate-600 font-medium text-xs">
+                        {s.parameters.join(", ")}
+                      </td>
+                      <td className="py-4 px-2 text-xs font-bold">
+                        {s.oxide_method ? (
+                          <span className="text-purple-700 bg-purple-50 px-2 py-1 rounded border border-purple-100">
+                            {s.oxide_method}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="py-4 px-5 text-right">
+                        {s.is_self_service ? (
+                          <span className="text-[10px] uppercase font-bold bg-amber-50 text-amber-700 px-2 py-1 rounded border border-amber-100">
+                            Mandiri
+                          </span>
+                        ) : (
+                          <span className="text-[10px] uppercase font-bold bg-blue-50 text-blue-700 px-2 py-1 rounded border border-blue-100">
+                            Full Service
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div
+                onClick={() => toggleTicket(req.id)}
+                className="bg-slate-50 border-t border-slate-100 py-2 text-center text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
+              >
+                Tutup Rincian <ChevronUp size={12} className="inline ml-1" />
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    })}
+  </div>
+)} </div> </div> ) : null}
             {view === 'admin_config' && ( <div className="max-w-5xl mx-auto animate-fade-in"> <div className="flex flex-col md:flex-row justify-between items-center mb-8 border-b border-slate-200 pb-4"> <h2 className="text-2xl font-bold text-slate-800">Konfigurasi Sistem</h2> 
             
             {/* TAB NAVIGATION: HIDE MATERIAL TAB FOR MANAGER */}
