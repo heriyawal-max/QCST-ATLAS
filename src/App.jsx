@@ -7,7 +7,7 @@ import {
   ChevronRight, Eye, EyeOff, TrendingUp, Award, BarChart2, XCircle, ChevronDown, ChevronUp,
   Clock, Smartphone, MessageSquare, FileSpreadsheet, Search, RefreshCw, XSquare, Info, 
   Calendar, Filter, Send, Inbox, UserCog, Save, Settings, PlusCircle, GripVertical, BellRing,
-  AlertTriangle, HelpCircle, FileText as LogIcon, RotateCcw
+  AlertTriangle, HelpCircle, FileText as LogIcon, RotateCcw, Megaphone
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 // CHART
@@ -120,6 +120,116 @@ function App() {
   const [configTab, setConfigTab] = useState('users'); 
   const [newMaterialName, setNewMaterialName] = useState('');
   const [newParamInput, setNewParamInput] = useState({}); 
+
+  // 👇 1. STATE NOTIFIKASI
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  
+  // Hitung yang belum dibaca (badge merah)
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+
+  // 👇 2. FETCH NOTIFIKASI SAAT LOGIN
+  useEffect(() => {
+    if (session) {
+      const fetchNotifs = async () => {
+        
+        // 1. Cek dulu ID user yang sedang login di browser
+        console.log("🕵️‍♂️ ID USER LOGIN (Session):", session.id);
+
+        // 2. Coba ambil data (tambah log error)
+        const { data, error } = await supabase
+          .from('app_notifications')
+          .select('*')
+          .eq('user_id', session.id) // 👈 Kuncinya disini: Apakah ini cocok?
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (error) {
+            console.error("❌ GAGAL AMBIL DATA:", error.message);
+        } else {
+            console.log("✅ BERHASIL AMBIL DATA:", data);
+            
+            if (data.length === 0) {
+                console.warn("⚠️ Data kosong! Coba cek apakah ID User di tabel app_notifications sama dengan ID Session di atas?");
+            }
+            
+            setNotifications(data);
+        }
+      };
+      
+      fetchNotifs();
+    }
+  }, [session]);
+
+  // 👇 4. FUNGSI TANDAI BACA
+  const markAsRead = async (id) => {
+     // Update UI instan
+     setNotifications(prev => prev.map(n => n.id === id ? {...n, is_read: true} : n));
+     // Update Database
+     await supabase.from('app_notifications').update({ is_read: true }).eq('id', id);
+  };
+
+  const markAllRead = async () => {
+     setNotifications(prev => prev.map(n => ({...n, is_read: true})));
+     await supabase.from('app_notifications').update({ is_read: true }).eq('user_id', session.id);
+  };
+
+  // 👇 STATE BARU: PENGUMUMAN
+  const [announcement, setAnnouncement] = useState({ id: 1, message: '', is_active: false });
+  const [editAnnouncement, setEditAnnouncement] = useState({ message: '', is_active: false });
+
+  // 👇 FUNGSI FETCH PENGUMUMAN
+  const fetchAnnouncement = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_announcements')
+        .select('*')
+        .limit(1)
+        .single();
+        
+      if (data) {
+        setAnnouncement(data);
+        setEditAnnouncement(data); // Siapkan data untuk form edit admin
+      }
+    } catch (err) {
+      console.error("Gagal memuat pengumuman", err);
+    }
+  };
+
+  // 👇 FUNGSI UPDATE PENGUMUMAN (KHUSUS ADMIN)
+  const handleSaveAnnouncement = async () => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('app_announcements')
+        .update({ 
+            message: editAnnouncement.message, 
+            is_active: editAnnouncement.is_active,
+            updated_at: new Date()
+        })
+        .eq('id', announcement.id); // Asumsi kita pakai ID 1 (single row)
+
+      if (error) throw error;
+      
+      addToast("Info sistem diperbarui!", "success");
+      fetchAnnouncement(); // Refresh tampilan
+      logActivity("UPDATE INFO", "Mengupdate pengumuman sistem");
+    } catch (err) {
+      addToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Masukkan fetchAnnouncement ke useEffect yang sudah ada (Initial Load)
+  useEffect(() => {
+    if(session) {
+       fetchMaterials(); 
+       fetchGlobalStats();
+       fetchAnnouncement(); // <--- TAMBAHKAN INI
+       if(session.role !== 'user' && session.role !== 'analyst') { fetchUsers(); fetchLogs(); }
+    }
+  }, [session]);
 
   // STATE: UI LAYOUT & LOGIN
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -250,20 +360,57 @@ function App() {
       }
   }, [session]);
 
-  // --- REALTIME ---
+ // --- REALTIME ---
+ // 👇 KODE DEBUGGING KONEKSI (SUPER VERBOSE)
   useEffect(() => {
     if (!session) return;
-    const channel = supabase.channel('realtime-requests')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, (payload) => {
-          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
-            fetchTableRequests(); fetchGlobalStats();
-            if (payload.eventType === 'UPDATE' && session.role === 'user' && session.id === payload.new.created_by_id) { addToast(`Status Tiket ${payload.new.ticket_number} berubah: ${payload.new.status}`, 'success'); }
-            if (payload.eventType === 'INSERT' && session.role !== 'user') { addToast(`Permintaan Baru Masuk`, 'info'); }
-          }
+
+    // Bersihkan channel lama jika ada (biar ga double)
+    supabase.getChannels().map(c => supabase.removeChannel(c));
+
+    console.log("🔌 MENCOBA KONEKSI REALTIME KE TABEL NOTIFIKASI...");
+
+    const channel = supabase.channel('debug-room-v1')
+      .on('postgres_changes', 
+        { 
+          event: '*', // Dengarkan INSERT, UPDATE, DELETE
+          schema: 'public', 
+          table: 'app_notifications' 
+        }, 
+        (payload) => {
+           console.log("🔥 [EVENT MASUK]:", payload); // Log mentah
+           
+           if (payload.new && payload.new.user_id === session.id) {
+               console.log("✅ INI MILIK SAYA! Update UI...");
+               setNotifications(prev => {
+    // 1. Cek dulu, apakah ID notifikasi ini sudah ada di list?
+    const isDuplicate = prev.some(item => item.id === payload.new.id);
+    
+    // 2. Kalau sudah ada (duplikat), biarkan saja (return prev)
+    if (isDuplicate) return prev;
+    
+    // 3. Kalau belum ada, baru tambahkan ke paling atas
+    return [payload.new, ...prev];
+});
+               addToast(`🔔 ${payload.new.title}`, 'info'); 
+           }
         }
-      ).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [session, fetchTableRequests]); 
+      )
+      .subscribe((status, err) => {
+        // 👇 INI YANG PENTING BOSKU
+        console.log("📡 STATUS KONEKSI:", status);
+        
+        if (status === 'SUBSCRIBED') {
+            console.log("🟢 KONEKSI AMAN. MENUNGGU DATA...");
+        } else if (status === 'CHANNEL_ERROR') {
+            console.error("🔴 KONEKSI GAGAL/DITOLAK!", err);
+        } else if (status === 'TIMED_OUT') {
+            console.warn("🟡 KONEKSI RTO (TIMEOUT). CEK INTERNET.");
+        }
+      });
+
+    return () => supabase.removeChannel(channel);
+  }, [session]);
 
   // --- LOG ACTIVITY ---
   const logActivity = async (action, details) => {
@@ -330,7 +477,32 @@ function App() {
   const handleExportExcel = () => { if (filteredRequests.length === 0) return addToast("No data!", "error"); let csv = "No Tiket,Tanggal,Jam,Pemohon,Material,Nama Spesifik,Parameter Uji,Metode Oksida,Keterangan,Tipe Layanan,Status,Validator\n"; filteredRequests.forEach(r => { (r.samples || []).forEach(s => { const d = new Date(r.created_at); const clean = (t) => t ? `"${t.toString().replace(/"/g, '""')}"` : "-"; csv += [r.ticket_number, d.toLocaleDateString('id-ID'), d.toLocaleTimeString('id-ID'), clean(r.creator?.full_name), clean(s.material_type), clean(s.specific_name || s.material_type), clean(s.parameters.join('; ')), clean(s.oxide_method), clean(s.description), s.is_self_service ? "Mandiri" : "Full Service", r.status, clean(r.validator?.full_name)].join(",") + "\n"; }); }); const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `Laporan_Lab_ATLAS_${new Date().toISOString().slice(0,10)}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link); addToast("Export berhasil!", "success"); logActivity("EXPORT DATA", "Mengunduh data Excel"); };
   
   const handleValidate = (id) => { triggerConfirm("Validasi?", "Data akan divalidasi dan status menjadi Selesai.", "success", async () => { const { error } = await supabase.from('requests').update({ validated_by: session.id, validated_at: new Date().toISOString(), status: 'Selesai' }).eq('id', id); if(error) addToast(error.message, "error"); else { addToast("Validasi Berhasil!", "success"); fetchTableRequests(); fetchGlobalStats(); logActivity("VALIDATE", `Memvalidasi tiket ID: ${id}`); } }); };
-  const updateStatus = async (id, status) => { await supabase.from('requests').update({ status }).eq('id', id); addToast(`Status: ${status}`, "info"); fetchTableRequests(); fetchGlobalStats(); logActivity("UPDATE STATUS", `Ubah status tiket ID: ${id} menjadi ${status}`); };
+  const updateStatus = async (id, status) => {
+    // 1. Ambil data tiket dulu (untuk tahu ID Pemiliknya / created_by_id)
+    const { data: ticket } = await supabase
+      .from('requests')
+      .select('created_by_id, ticket_number')
+      .eq('id', id)
+      .single();
+
+    // 2. Update Status Tiket (Logic lama)
+    await supabase.from('requests').update({ status }).eq('id', id);
+    addToast(`Status: ${status}`, "info");
+    fetchTableRequests(); 
+    fetchGlobalStats(); 
+    
+    // 👇 3. LOGIC BARU: KIRIM NOTIFIKASI KE PEMILIK
+    if (ticket && ticket.created_by_id) {
+       await supabase.from('app_notifications').insert([{
+          user_id: ticket.created_by_id, // Kirim ke UUID User
+          title: 'Update Status Tiket',
+          message: `Tiket ${ticket.ticket_number} statusnya sekarang: ${status}`,
+          is_read: false
+       }]);
+    }
+    
+    logActivity("UPDATE STATUS", `Ubah status tiket ID: ${id} menjadi ${status}`);
+  };
   const handleDeleteUser = (id) => { triggerConfirm("Hapus User?", "User akan dihapus permanen.", "danger", async () => { await supabase.from('app_users').delete().eq('id', id); fetchUsers(); addToast("User dihapus", "info"); logActivity("DELETE USER", `Menghapus user ID: ${id}`); }); };
   const prepareEditUser = (user) => { setUserForm({ id: user.id, username: user.username, password: user.password, full_name: user.full_name, role: user.role }); setIsEditingUser(true); setIsUserFormOpen(true); };
   const resetUserForm = () => { setUserForm({ id: null, username: '', password: '', full_name: '', role: 'user' }); setIsEditingUser(false); };
@@ -400,9 +572,104 @@ function App() {
         <div className={`bg-red-950/30 border-t border-red-800/50 relative ${isSidebarCollapsed ? 'p-2' : 'p-4'}`} ref={profileMenuRef}> {showProfileMenu && ( <div className={`absolute bottom-20 bg-white rounded-xl shadow-xl overflow-hidden animate-fade-in-up text-slate-800 z-50 ${isSidebarCollapsed ? 'left-16 w-48' : 'left-4 right-4'}`}> <button onClick={openProfileModal} className="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-sm font-bold border-b border-slate-100"><UserCog size={16} className="text-slate-500"/> Edit Profil</button> <button onClick={handleLogout} className="w-full text-left px-4 py-3 hover:bg-red-50 flex items-center gap-3 text-sm font-bold text-red-600"><LogOut size={16}/> Keluar</button> </div> )} <div className={`flex items-center gap-3 mb-0 cursor-pointer hover:bg-white/10 rounded-lg transition-all select-none ${isSidebarCollapsed ? 'justify-center p-2' : 'p-2'}`} onClick={() => setShowProfileMenu(!showProfileMenu)}> <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-red-600 to-red-500 flex items-center justify-center font-bold text-sm shadow-inner border border-red-400/30 shrink-0">{session.username.charAt(0).toUpperCase()}</div> {!isSidebarCollapsed && ( <div className="overflow-hidden flex-1 animate-fade-in"><p className="text-sm font-bold truncate w-24 text-red-50">{session.full_name}</p><p className="text-[10px] text-red-300 uppercase tracking-wider flex items-center gap-1">{session.role} {showProfileMenu ? <ChevronDown size={10}/> : <ChevronUp size={10}/>}</p></div> )} </div> </div>
       </aside>
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-100">
-        <header className="md:hidden bg-gradient-to-r from-red-900 to-slate-900 p-4 flex justify-between items-center shadow-md z-10"><img src={logoAtlasWhite} alt="ATLAS" className="h-8" /><button onClick={() => setIsMobileMenuOpen(true)} className="text-white"><Menu/></button></header>
+     <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-100">
+        
+        {/* 👇 HEADER BARU (MUNCUL DI MOBILE & DESKTOP) 👇 */}
+        <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-4 md:px-8 sticky top-0 z-40 shadow-sm">
+            
+            {/* BAGIAN KIRI: TOMBOL MOBILE & JUDUL HALAMAN */}
+            <div className="flex items-center gap-4">
+                <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-slate-600 hover:text-red-600 transition-colors">
+                    <Menu size={24}/>
+                </button>
+                <div className="hidden md:flex flex-col">
+                   <h1 className="font-bold text-slate-800 text-lg leading-tight">
+                      {view === 'dashboard' && 'Dashboard Overview'}
+                      {view === 'order' && 'Permintaan Uji Baru'}
+                      {view === 'history' && 'Riwayat Permintaan'}
+                      {view === 'admin_requests' && 'Manajemen Laboratorium'}
+                      {view === 'admin_config' && 'Konfigurasi Sistem'}
+                   </h1>
+                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ATLAS LIMS v1.0</p>
+                </div>
+            </div>
+
+            {/* BAGIAN KANAN: NOTIFIKASI LONCENG (PINDAH KESINI) */}
+            <div className="flex items-center gap-4">
+                <div className="relative">
+                    <button 
+                      onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                      className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-red-600 transition-all relative"
+                    >
+                      <BellRing size={22} />
+                      {unreadCount > 0 && (
+                        <span className="absolute top-1 right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-bounce shadow-sm border border-white">
+                          {unreadCount > 9 ? '9+' : unreadCount}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* DROPDOWN NOTIFIKASI */}
+                    {showNotifDropdown && (
+                      <div className="absolute right-0 mt-3 w-80 bg-white rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] border border-slate-100 overflow-hidden animate-fade-in-up origin-top-right z-50">
+                        <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                           <h4 className="font-bold text-slate-700 text-sm">Notifikasi</h4>
+                           {unreadCount > 0 && <button onClick={markAllRead} className="text-[10px] text-blue-600 hover:underline font-bold">Tandai Baca Semua</button>}
+                        </div>
+                        <div className="max-h-80 overflow-y-auto bg-white custom-scrollbar">
+                           {notifications.length === 0 ? (
+                              <div className="p-8 text-center flex flex-col items-center text-slate-400">
+                                 <BellRing size={32} className="opacity-20 mb-2"/>
+                                 <p className="text-xs italic">Tidak ada notifikasi baru.</p>
+                              </div>
+                           ) : (
+                              notifications.map(notif => (
+                                 <div 
+                                    key={notif.id} 
+                                    onClick={() => markAsRead(notif.id)}
+                                    className={`p-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors relative ${notif.is_read ? 'opacity-60' : 'bg-red-50/30'}`}
+                                 >
+                                    {!notif.is_read && <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-500"></div>}
+                                    <div className="flex gap-3 pl-2">
+                                       <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${notif.is_read ? 'bg-slate-100 text-slate-400' : 'bg-red-100 text-red-600'}`}>
+                                          <BellRing size={14}/>
+                                       </div>
+                                       <div>
+                                          <p className={`text-sm ${notif.is_read ? 'font-medium text-slate-600' : 'font-bold text-slate-800'}`}>{notif.title}</p>
+                                          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{notif.message}</p>
+                                          <p className="text-[10px] text-slate-400 mt-1">{new Date(notif.created_at).toLocaleString('id-ID', { hour:'2-digit', minute:'2-digit', day:'numeric', month:'short' })}</p>
+                                       </div>
+                                    </div>
+                                 </div>
+                              ))
+                           )}
+                        </div>
+                      </div>
+                    )}
+                </div>
+            </div>
+        </header>
         <main className="flex-1 overflow-y-auto p-4 md:p-8 relative">
+          {/* 👇 KOMPONEN ALERT BAR (HANYA MUNCUL JIKA AKTIF) 👇 */}
+          {announcement.is_active && (
+            <div className="mx-auto max-w-6xl mb-6 animate-fade-in-down relative z-20">
+              <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r-lg shadow-sm flex items-start gap-3">
+                <div className="text-yellow-600 mt-0.5">
+                   <AlertTriangle size={20} className="animate-pulse"/>
+                </div>
+                <div>
+                  <h4 className="font-bold text-yellow-800 text-sm uppercase tracking-wide">Info Layanan Laboratorium</h4>
+                  <p className="text-yellow-700 text-sm font-medium mt-1">
+                    {announcement.message}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          {/* 👆 BATAS AKHIR ALERT BAR 👆 */}
+
+          <div className="absolute top-0 inset-x-0 h-64 bg-gradient-to-b from-slate-200 to-slate-100 opacity-50 pointer-events-none z-0"></div>
+          {/* ... sisa kode main content Anda ... */}
           <div className="absolute top-0 inset-x-0 h-64 bg-gradient-to-b from-slate-200 to-slate-100 opacity-50 pointer-events-none z-0"></div>
           <div className="relative z-10">
             {view === 'dashboard' && ( <div className="max-w-6xl mx-auto space-y-6 animate-fade-in"> <div className="bg-gradient-to-r from-red-800 to-red-600 rounded-2xl p-6 md:p-10 text-white shadow-lg relative overflow-hidden border-b-4 border-red-900"> <div className="relative z-10"> <h2 className="text-2xl md:text-3xl font-bold mb-2 tracking-tight">{greeting}, {session.full_name}</h2> <p className="text-red-100 mb-8 max-w-lg text-sm md:text-base leading-relaxed">Sistem ATLAS siap membantu proses analisa sampel Anda hari ini dengan cepat, akurat dan presisi.</p> {(session.role !== 'analyst' && session.role !== 'manager') && <button onClick={() => setView('order')} className="bg-white text-red-800 px-6 py-3 rounded-lg font-bold shadow-md hover:shadow-lg hover:bg-red-50 transition-all flex items-center gap-2 text-sm tracking-wide"><Plus size={18}/> BUAT PERMINTAAN BARU</button>} </div> <FlaskConical className="absolute -bottom-12 -right-12 text-white/10 w-72 h-72 rotate-12" /> </div> <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4"> <StatCard label="Total Sampel" value={stats.totalSamples} color="red" /> <StatCard label="Permintaan Baru" value={stats.pendingCount} color="purple" /> <StatCard label="Sedang Diproses" value={stats.processingCount} color="yellow" /> <StatCard label="Selesai" value={stats.completedCount} color="green" /> <StatCard label="Total Tiket" value={stats.totalTickets} color="blue" /> </div> <div className="grid md:grid-cols-2 gap-6 mt-6"> <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><TrendingUp className="text-red-600"/> Statistik jenis sample uji</h3><div className="h-80 md:h-64 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.materialDistribution} layout="vertical" margin={{top: 5, right: 30, left: 10, bottom: 5}}><CartesianGrid strokeDasharray="3 3" horizontal={false} /><XAxis type="number" hide /><YAxis type="category" dataKey="name" width={80} tick={{fontSize: 11, fontWeight: 'bold'}} /><Tooltip cursor={{fill: '#f3f4f6'}} /><Bar dataKey="value" fill="#b91c1c" radius={[0, 4, 4, 0]} barSize={24} /></BarChart></ResponsiveContainer></div></div> <div className="space-y-6"> <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col items-center"> <h3 className="font-bold text-slate-800 mb-2 flex w-full text-center gap-2"><Clock className="text-red-600"/>Status Uji</h3> <div className="h-64 md:h-48 w-full"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={stats.statusDistribution} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={4} dataKey="value">{stats.statusDistribution.map((entry, index) => (<Cell key={`cell-${index}`} fill={STATUS_COLORS[entry.name] || '#cbd5e1'} stroke="none" />))}</Pie><Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} itemStyle={{ color: '#1e293b', fontWeight: 'bold', fontSize: '12px' }} /><Legend layout="vertical" verticalAlign="middle" align="right" iconType="circle" iconSize={10} wrapperStyle={{ fontSize: "11px", fontWeight: "600", color: "#475569" }} /></PieChart></ResponsiveContainer></div> </div> <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex-1"><h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Award className="text-yellow-500"/> Top Kontributor</h3><ul className="space-y-3">{stats.topUsers.map((u, idx) => (<li key={idx} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2 last:border-0"><span className="flex items-center gap-2"><span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${idx===0?'bg-yellow-100 text-yellow-700':idx===1?'bg-gray-100 text-gray-700':'bg-orange-50 text-orange-700'}`}>{idx+1}</span>{u.name}</span><span className="font-bold text-slate-600">{u.count} Tiket</span></li>))}</ul></div> </div> </div> </div> )}
@@ -659,7 +926,44 @@ function App() {
     })}
   </div>
 )} </div> </div> ) : null}
-            {view === 'admin_config' && ( <div className="max-w-5xl mx-auto animate-fade-in"> <div className="flex flex-col md:flex-row justify-between items-center mb-8 border-b border-slate-200 pb-4"> <h2 className="text-2xl font-bold text-slate-800">Konfigurasi Sistem</h2> 
+            {view === 'admin_config' && ( <div className="max-w-5xl mx-auto animate-fade-in">
+              {session.role === 'admin' && (
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+                     <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <Megaphone size={20} className="text-red-600"/> Pengaturan Info / Broadcast
+                     </h3>
+                     <div className="flex flex-col md:flex-row gap-4 items-start">
+                        <div className="flex-1 w-full space-y-3">
+                           <div>
+                              <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Pesan Informasi</label>
+                              <textarea 
+                                className="w-full border-2 border-slate-200 rounded-lg p-3 text-sm font-medium focus:border-red-600 outline-none h-20 resize-none"
+                                placeholder="Tulis info kendala alat atau pengumuman maintenance disini..."
+                                value={editAnnouncement.message}
+                                onChange={(e) => setEditAnnouncement({...editAnnouncement, message: e.target.value})}
+                              />
+                           </div>
+                           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setEditAnnouncement({...editAnnouncement, is_active: !editAnnouncement.is_active})}>
+                              <div className={`w-10 h-6 rounded-full p-1 transition-colors ${editAnnouncement.is_active ? 'bg-green-500' : 'bg-slate-300'}`}>
+                                 <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${editAnnouncement.is_active ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                              </div>
+                              <span className="text-sm font-bold text-slate-700">
+                                 {editAnnouncement.is_active ? 'Status: DITAMPILKAN ke User' : 'Status: DISEMBUNYIKAN'}
+                              </span>
+                           </div>
+                        </div>
+                        <button 
+                          onClick={handleSaveAnnouncement}
+                          disabled={loading}
+                          className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-lg font-bold shadow-md transition-all flex items-center gap-2 h-fit mt-6"
+                        >
+                          <Save size={18}/> {loading ? 'Menyimpan...' : 'Update Info'}
+                        </button>
+                     </div>
+                  </div>
+                )}
+            
+            <div className="flex flex-col md:flex-row justify-between items-center mb-8 border-b border-slate-200 pb-4"> <h2 className="text-2xl font-bold text-slate-800">Konfigurasi Sistem</h2> 
             
             {/* TAB NAVIGATION: HIDE MATERIAL TAB FOR MANAGER */}
             <div className="flex gap-2 mt-4 md:mt-0 bg-slate-100 p-1 rounded-lg"> 
