@@ -179,20 +179,31 @@ function App() {
   const [editAnnouncement, setEditAnnouncement] = useState({ message: '', is_active: false });
 
   // 👇 FUNGSI FETCH PENGUMUMAN
+ // GANTI FUNGSI INI
   const fetchAnnouncement = async () => {
     try {
-      const { data, error } = await supabase
-        .from('app_announcements')
-        .select('*')
-        .limit(1)
-        .single();
+        console.log("📡 Mengambil data Broadcast dari database...");
         
-      if (data) {
-        setAnnouncement(data);
-        setEditAnnouncement(data); // Siapkan data untuk form edit admin
-      }
+        const { data, error } = await supabase
+          .from('app_announcements')
+          .select('*')
+          .limit(1) // Ambil 1 baris saja
+          .single(); // Wajib single object
+          
+        if (error) {
+            console.error("❌ ERROR FETCH:", error.message);
+            // Fallback: Jika error "Row not found", berarti tabel kosong
+        } else if (data) {
+            console.log("✅ DATA DITEMUKAN:", data); 
+            // Pastikan state diisi lengkap (terutama ID)
+            setAnnouncement({
+                id: data.id, 
+                message: data.message,
+                is_active: data.is_active
+            });
+        }
     } catch (err) {
-      console.error("Gagal memuat pengumuman", err);
+        console.error("Critical Error:", err);
     }
   };
 
@@ -391,7 +402,7 @@ function App() {
     
     // 3. Kalau belum ada, baru tambahkan ke paling atas
     return [payload.new, ...prev];
-});
+}); 
                addToast(`🔔 ${payload.new.title}`, 'info'); 
            }
         }
