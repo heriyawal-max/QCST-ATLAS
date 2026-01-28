@@ -50,7 +50,7 @@ const RequestSkeleton = () => (
 // 👇 FUNGSI KIRIM NOTIFIKASI + LINK APPROVAL
 const sendTelegramNotification = async (ticketNumber, fileName, pdfUrl) => {
     const BOT_TOKEN = "8448554983:AAFnhz2Yi2ZcBgplrJCorx107cPO83eM5OM"; 
-    const MANAGER_CHAT_ID = "5829039658"; 
+    const MANAGER_CHAT_ID = "1192945247"; 
 
     // 🪄 TRIK MAGIC: Ambil alamat website otomatis
     // Kalau di localhost jadinya: http://localhost:5173
