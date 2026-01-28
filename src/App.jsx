@@ -326,18 +326,20 @@ function App() {
     if (!session) return;
     setIsDataLoading(true);
     try {
+        // ... (bagian query select di atas biarkan sama) ...
         let query = supabase.from('requests')
             .select(`*, samples!inner (*), creator:created_by_id(full_name), validator:validated_by(full_name)`)
             .order('created_at', { ascending: false });
 
         if (session.role === 'user') query = query.eq('created_by_id', session.id);
 
-        // Server Side Search Logic
-        if (debouncedSearch) {
-            // Pencarian sederhana berdasarkan nomor tiket atau status (bisa dikembangkan)
+        // ❌ HAPUS atau MATIKAN BAGIAN INI (Server Side Search) ❌
+        /* if (debouncedSearch) {
             query = query.or(`ticket_number.ilike.%${debouncedSearch}%,status.ilike.%${debouncedSearch}%`);
         }
+        */
 
+        // Filter Tanggal (Biarkan tetap ada)
         if (dateFilter.start) query = query.gte('created_at', dateFilter.start);
         if (dateFilter.end) {
             const endDate = new Date(dateFilter.end);
@@ -345,15 +347,15 @@ function App() {
             query = query.lte('created_at', endDate.toISOString());
         }
 
-        const limit = debouncedSearch ? 99 : 49;
-        query = query.range(0, limit);
+        // Set limit tetap 100 data agar pencarian client-side punya bahan
+        query = query.range(0, 99); 
 
         const { data, error } = await query;
         if (!error) setRequests(data || []);
         else console.error(error);
     } catch (err) { console.error("Fetch Error:", err); }
     setIsDataLoading(false);
-  }, [session, debouncedSearch, dateFilter]);
+  }, [session, dateFilter]); // Hapus debouncedSearch dari dependency array
 
   const fetchMaterials = async () => {
     setIsLoadingMaterials(true);
@@ -525,7 +527,28 @@ function App() {
 
   // --- FIX: DEFINISIKAN filteredRequests AGAR TIDAK CRASH ---
   // Karena filtering sudah dilakukan di Server (fetchTableRequests), maka variabel ini cukup me-refer ke state 'requests'
-  const filteredRequests = requests; 
+  const filteredRequests = requests.filter(req => {
+      // 1. Jika kotak cari kosong, tampilkan semua
+      if (!searchTerm) return true; 
+
+      const lowerSearch = searchTerm.toLowerCase();
+
+      // 2. Cek kecocokan di Nomor Tiket, Status, atau Nama Pembuat
+      const matchTicket = req.ticket_number?.toLowerCase().includes(lowerSearch);
+      const matchStatus = req.status?.toLowerCase().includes(lowerSearch);
+      const matchCreator = req.creator?.full_name?.toLowerCase().includes(lowerSearch);
+
+      // 3. Cek kecocokan di dalam Sampel (Material / Nama Spesifik)
+      //    (Kita cari apakah ADA salah satu sampel yang namanya cocok)
+      const matchMaterial = req.samples?.some(s => 
+          s.material_type?.toLowerCase().includes(lowerSearch) || 
+          s.specific_name?.toLowerCase().includes(lowerSearch) ||
+          s.description?.toLowerCase().includes(lowerSearch)
+      );
+
+      // 4. Return true jika salah satu kriteria terpenuhi
+      return matchTicket || matchStatus || matchCreator || matchMaterial;
+  });
 
   const handleReorder = (req) => { const items = (req.samples || []).map((s, i) => ({ id: Date.now() + i, material: s.material_type, params: s.parameters, isSelfService: s.is_self_service, specificName: s.specific_name, oxideMethod: s.oxide_method, description: s.description })); setCart([...cart, ...items]); if (window.innerWidth < 1024) setIsCartOpen(true); addToast("Item masuk keranjang!", "success"); };
   const handleExportExcel = () => { if (filteredRequests.length === 0) return addToast("No data!", "error"); let csv = "No Tiket,Tanggal,Jam,Pemohon,Material,Nama Spesifik,Parameter Uji,Metode Oksida,Keterangan,Tipe Layanan,Status,Validator\n"; filteredRequests.forEach(r => { (r.samples || []).forEach(s => { const d = new Date(r.created_at); const clean = (t) => t ? `"${t.toString().replace(/"/g, '""')}"` : "-"; csv += [r.ticket_number, d.toLocaleDateString('id-ID'), d.toLocaleTimeString('id-ID'), clean(r.creator?.full_name), clean(s.material_type), clean(s.specific_name || s.material_type), clean(s.parameters.join('; ')), clean(s.oxide_method), clean(s.description), s.is_self_service ? "Mandiri" : "Full Service", r.status, clean(r.validator?.full_name)].join(",") + "\n"; }); }); const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `Laporan_Lab_ATLAS_${new Date().toISOString().slice(0,10)}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link); addToast("Export berhasil!", "success"); logActivity("EXPORT DATA", "Mengunduh data Excel"); };
