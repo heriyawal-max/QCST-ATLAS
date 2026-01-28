@@ -47,7 +47,50 @@ const RequestSkeleton = () => (
     </div>
   </div>
 );
+// 👇 FUNGSI KIRIM NOTIFIKASI + LINK APPROVAL
+const sendTelegramNotification = async (ticketNumber, fileName, pdfUrl) => {
+    const BOT_TOKEN = "8448554983:AAFnhz2Yi2ZcBgplrJCorx107cPO83eM5OM"; 
+    const MANAGER_CHAT_ID = "5829039658"; 
 
+    // 🪄 TRIK MAGIC: Ambil alamat website otomatis
+    // Kalau di localhost jadinya: http://localhost:5173
+    // Kalau sudah online jadinya: https://atlas-lims.com
+    const appLink = window.location.origin; 
+    
+    // Kita arahkan ke halaman detail tiket (Sesuaikan route di aplikasi bosku)
+    // Contoh: /requests/ATL-123 atau cukup ke Dashboard saja
+    const approvalLink = `${appLink}/?search=${ticketNumber}`; 
+
+    const message = `
+🚨 *BUTUH APPROVAL MANAGER* 🚨
+
+Halo Pak/Bu Manager, 
+Ada dokumen hasil uji baru yang perlu divalidasi.
+
+🎫 *Tiket:* ${ticketNumber}
+📄 *File:* ${fileName}
+
+👇 *Silakan klik link di bawah untuk Validasi:*
+[👉 BUKA APLIKASI ATLAS](${approvalLink})
+🔗 [Lihat Dokumen PDF](${pdfUrl})
+    `;
+
+    try {
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: MANAGER_CHAT_ID,
+                text: message,
+                parse_mode: 'Markdown',
+                disable_web_page_preview: true // Supaya chatnya rapi
+            })
+        });
+        console.log("✅ Notifikasi + Link Approval terkirim!");
+    } catch (error) {
+        console.error("❌ Gagal kirim Telegram:", error);
+    }
+};
 // --- ERROR BOUNDARY ---
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
@@ -523,7 +566,44 @@ function App() {
   const openUserStats = (user) => { const fetchS = async () => { const { data } = await supabase.from('requests').select(`*, samples (*)`).eq('created_by_id', user.id); if(data) { let m = {}, p = {}, t = 0; data.forEach(r => { (r.samples||[]).forEach(s => { t++; m[s.material_type] = (m[s.material_type]||0)+1; s.parameters.forEach(x => p[x] = (p[x]||0)+1); }); }); setSelectedUserStats({ user, totalSamples: t, materialData: Object.keys(m).map(k=>({name:k, value:m[k]})), paramData: Object.keys(p).map(k=>({name:k, value:p[k]})).sort((a,b)=>b.value-a.value).slice(0,7) }); setShowStatsModal(true); } }; fetchS(); };
 
   const handleDeleteRequest = (id) => { triggerConfirm("Hapus Permintaan?", "Data akan hilang permanen.", "danger", async () => { const { error } = await supabase.from('requests').delete().eq('id', id); if(error) addToast(error.message, "error"); else { fetchTableRequests(); fetchGlobalStats(); addToast("Dihapus", "info"); logActivity("DELETE REQUEST", `Menghapus tiket ID: ${id}`); } }); };
-  const uploadResult = async (e, id) => { const f = e.target.files[0]; if (!f) return; if(f.type !== 'application/pdf') return addToast("Harus PDF!", "error"); if(f.size > 2*1024*1024) return addToast("Max 2MB!", "error"); setUploadingId(id); const n = `REQ_${id}_${Date.now()}.pdf`; try { const { error } = await supabase.storage.from('lab-results').upload(n, f); if (error) throw error; const { data } = supabase.storage.from('lab-results').getPublicUrl(n); await supabase.from('requests').update({ result_pdf_url: data.publicUrl, validated_by: null, validated_at: null }).eq('id', id); addToast("Uploaded!", "success"); fetchTableRequests(); fetchGlobalStats(); logActivity("UPLOAD RESULT", `Upload hasil untuk tiket ID: ${id}`); } catch (err) { addToast(err.message, "error"); } finally { setUploadingId(null); } };
+  // 👇 UPDATE FUNGSI INI (Tambahkan parameter ticketNumber)
+  const uploadResult = async (e, id, ticketNumber) => { 
+    const f = e.target.files[0]; 
+    if (!f) return; 
+    if(f.type !== 'application/pdf') return addToast("Harus PDF!", "error"); 
+    if(f.size > 2*1024*1024) return addToast("Max 2MB!", "error"); 
+    
+    setUploadingId(id); 
+    const n = `REQ_${id}_${Date.now()}.pdf`; 
+    
+    try { 
+        // 1. Upload ke Storage
+        const { error } = await supabase.storage.from('lab-results').upload(n, f); 
+        if (error) throw error; 
+        
+        // 2. Ambil Public URL
+        const { data } = supabase.storage.from('lab-results').getPublicUrl(n); 
+        const pdfUrl = data.publicUrl; // Simpan URL
+
+        // 3. Update Database
+        await supabase.from('requests')
+            .update({ result_pdf_url: pdfUrl, validated_by: null, validated_at: null })
+            .eq('id', id); 
+        
+        addToast("Uploaded!", "success"); 
+        
+        // 👇 4. KIRIM NOTIFIKASI TELEGRAM DISINI
+        await sendTelegramNotification(ticketNumber, f.name, pdfUrl);
+
+        fetchTableRequests(); 
+        fetchGlobalStats(); 
+        logActivity("UPLOAD RESULT", `Upload hasil untuk tiket ID: ${id}`); 
+    } catch (err) { 
+        addToast(err.message, "error"); 
+    } finally { 
+        setUploadingId(null); 
+    } 
+  };
   const addToCart = () => { if (orderForm.params.length === 0) return addToast("Pilih parameter!", "error"); const qty = parseInt(orderForm.quantity)||0; if (qty < 1) return addToast("Jumlah min 1", "error"); const items = []; for (let i = 0; i < qty; i++) { items.push({ id: Date.now() + i, material: orderForm.material, params: orderForm.params, isSelfService: orderForm.isSelfService, specificName: (orderForm.material === 'Raw Material' || orderForm.material === 'AFR') ? orderForm.specificName : orderForm.material, oxideMethod: orderForm.params.includes('Oksida') ? orderForm.oxideMethod : null, description: orderForm.description }); } setCart([...cart, ...items]); setOrderForm({ ...orderForm, params: [], quantity: 1, specificName: '', oxideMethod: '', description: '' }); if (window.innerWidth < 1024) setIsCartOpen(true); addToast("Masuk list!", "success"); };
   const handleCheckout = async () => { if (cart.length === 0) return; setLoading(true); const ticket = `ATL-${Math.floor(Math.random() * 10000)}`; try { const { data: req } = await supabase.from('requests').insert([{ ticket_number: ticket, status: 'Permintaan Terkirim', created_by_id: session.id }]).select().single(); const sData = cart.map(i => ({ request_id: req.id, material_type: i.material, parameters: i.params, is_self_service: i.isSelfService, specific_name: i.specificName, oxide_method: i.oxideMethod, description: i.description })); await supabase.from('samples').insert(sData); addToast("Sukses! Tiket: " + ticket, "success"); setCart([]); setView((session.role !== 'user') ? 'admin_requests' : 'history'); fetchTableRequests(); fetchGlobalStats(); logActivity("CREATE REQUEST", `Membuat request baru: ${ticket}`); } catch (err) { addToast(err.message, "error"); } finally { setLoading(false); } };
   const toggleParam = (p) => { if (orderForm.params.includes(p)) setOrderForm({...orderForm, params: orderForm.params.filter(x => x !== p)}); else setOrderForm({...orderForm, params: [...orderForm.params, p]}); };
@@ -601,7 +681,7 @@ function App() {
                       {view === 'admin_requests' && 'Manajemen Laboratorium'}
                       {view === 'admin_config' && 'Konfigurasi Sistem'}
                    </h1>
-                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ATLAS LIMS v1.0</p>
+                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">ATLAS v1.0</p>
                 </div>
             </div>
 
@@ -803,7 +883,7 @@ function App() {
                       type="file"
                       accept="application/pdf"
                       className="hidden"
-                      onChange={(e) => uploadResult(e, req.id)}
+                      onChange={(e) => uploadResult(e, req.id, req.ticket_number)}
                     />
                   </label>
                 )}
