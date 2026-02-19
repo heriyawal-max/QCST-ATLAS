@@ -84,8 +84,8 @@ Ada dokumen hasil uji baru yang perlu divalidasi.
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "✅ APPROVE (ACC)", url: approveLink },
-              { text: "❌ REJECT (TOLAK)", url: rejectLink }
+              { text: "✅ APPROVE (ACC)", callback_data: `approve:${ticketNumber}` },
+              { text: "❌ REJECT (TOLAK)", callback_data: `reject:${ticketNumber}` }
             ],
             [
               { text: "🔗 LIHAT DOKUMEN PDF", url: pdfUrl }
