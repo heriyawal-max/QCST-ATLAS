@@ -49,15 +49,21 @@ export default async function handler(req, res) {
             // Eksekusi Action
             if (action === 'approve') {
                 // Update Status ke Selesai & Validated
-                // Asumsi Manager yg klik (karena di Telegram Manager)
-                // Kita perlu cari ID manager kalau mau log, tapi untuk simplenya kita set validated_by 'SYSTEM_TELEGRAM' atau null dulu,
-                // atau idealnya kita mapping Telegram ID ke User ID (tapi ini fitur advance).
-                // Di sini kita bypass log user validated_by sementara atau pakai Service Role.
+                // Cari ID Manager untuk field validated_by
+                // Kita ambil Manager pertama yang ditemukan sebagai aktor validasi
+                const { data: managerData } = await supabase
+                    .from('app_users')
+                    .select('id')
+                    .eq('role', 'manager')
+                    .limit(1)
+                    .single();
+
+                const validatorId = managerData?.id || null;
 
                 await supabase.from('requests').update({
                     status: 'Selesai',
-                    validated_at: new Date().toISOString()
-                    // validated_by: ??? (Kita skip dulu atau set null)
+                    validated_at: new Date().toISOString(),
+                    validated_by: validatorId // PENTING: Agar status di sisi User berubah jadi "Selesai"
                 }).eq('id', requestData.id);
 
                 responseText = `✅ Tiket ${ticketNumber} BERHASIL DI-APPROVE!`;
