@@ -230,7 +230,6 @@ function App() {
   const [editAnnouncement, setEditAnnouncement] = useState({ message: '', is_active: false });
 
   // 👇 FUNGSI FETCH PENGUMUMAN
-  // GANTI FUNGSI INI
   const fetchAnnouncement = async () => {
     try {
       console.log("📡 Mengambil data Broadcast dari database...");
@@ -238,48 +237,53 @@ function App() {
       const { data, error } = await supabase
         .from('app_announcements')
         .select('*')
-        .limit(1) // Ambil 1 baris saja
-        .single(); // Wajib single object
+        .limit(1)
+        .maybeSingle(); // maybeSingle() tidak error kalau tabel kosong (return null)
 
       if (error) {
         console.error("❌ ERROR FETCH:", error.message);
-        // Fallback: Jika error "Row not found", berarti tabel kosong
       } else if (data) {
         console.log("✅ DATA DITEMUKAN:", data);
-        // Pastikan state diisi lengkap (terutama ID)
         setAnnouncement({
           id: data.id,
-          message: data.message,
-          is_active: data.is_active
+          message: data.message || '',
+          is_active: data.is_active || false
         });
-        // 👇 FIX BUG: Sync form edit dengan data dari DB
         setEditAnnouncement({
-          message: data.message,
-          is_active: data.is_active
+          message: data.message || '',
+          is_active: data.is_active || false
         });
+      } else {
+        console.log("⚠️ Tabel app_announcements KOSONG, akan dibuat saat pertama kali save.");
       }
     } catch (err) {
       console.error("Critical Error:", err);
     }
   };
 
-  // 👇 FUNGSI UPDATE PENGUMUMAN (KHUSUS ADMIN)
+  // 👇 FUNGSI UPDATE PENGUMUMAN (KHUSUS ADMIN) - FIXED: Pakai UPSERT
   const handleSaveAnnouncement = async () => {
     setLoading(true);
     try {
-      const { error } = await supabase
+      // Gunakan upsert: jika row ada → update, jika belum ada → insert
+      const { data: upsertData, error } = await supabase
         .from('app_announcements')
-        .update({
+        .upsert({
+          id: announcement.id, // Pakai ID yang di-fetch, atau default 1
           message: editAnnouncement.message,
           is_active: editAnnouncement.is_active,
-          updated_at: new Date()
-        })
-        .eq('id', announcement.id); // Asumsi kita pakai ID 1 (single row)
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' })
+        .select(); // select() agar kita bisa lihat hasilnya
 
-      if (error) throw error;
+      if (error) {
+        console.error("❌ ERROR SAVE:", error.message);
+        throw error;
+      }
 
+      console.log("✅ BROADCAST SAVED:", upsertData);
       addToast("Info sistem diperbarui!", "success");
-      fetchAnnouncement(); // Refresh tampilan
+      await fetchAnnouncement(); // Refresh tampilan
       logActivity("UPDATE INFO", "Mengupdate pengumuman sistem");
     } catch (err) {
       addToast(err.message, "error");
