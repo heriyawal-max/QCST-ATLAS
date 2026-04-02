@@ -226,7 +226,7 @@ function App() {
   };
 
   // 👇 STATE BARU: PENGUMUMAN
-  const [announcement, setAnnouncement] = useState({ id: 1, message: '', is_active: false });
+  const [announcement, setAnnouncement] = useState({ id: null, message: '', is_active: false });
   const [editAnnouncement, setEditAnnouncement] = useState({ message: '', is_active: false });
 
   // 👇 FUNGSI FETCH PENGUMUMAN
@@ -261,27 +261,40 @@ function App() {
     }
   };
 
-  // 👇 FUNGSI UPDATE PENGUMUMAN (KHUSUS ADMIN) - FIXED: Pakai UPSERT
+  // 👇 FUNGSI UPDATE PENGUMUMAN (KHUSUS ADMIN) - FIXED v2
   const handleSaveAnnouncement = async () => {
     setLoading(true);
     try {
-      // Gunakan upsert: jika row ada → update, jika belum ada → insert
-      const { data: upsertData, error } = await supabase
-        .from('app_announcements')
-        .upsert({
-          id: announcement.id, // Pakai ID yang di-fetch, atau default 1
-          message: editAnnouncement.message,
-          is_active: editAnnouncement.is_active,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' })
-        .select(); // select() agar kita bisa lihat hasilnya
+      let error;
+
+      if (announcement.id !== null) {
+        // Row SUDAH ADA di DB (announcement.id di-set dari fetchAnnouncement)
+        // → UPDATE berdasarkan ID yang valid
+        ({ error } = await supabase
+          .from('app_announcements')
+          .update({
+            message: editAnnouncement.message,
+            is_active: editAnnouncement.is_active,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', announcement.id));
+      } else {
+        // Belum ada row → INSERT baru (TANPA id, biar auto-generate)
+        ({ error } = await supabase
+          .from('app_announcements')
+          .insert({
+            message: editAnnouncement.message,
+            is_active: editAnnouncement.is_active,
+            updated_at: new Date().toISOString()
+          }));
+      }
 
       if (error) {
         console.error("❌ ERROR SAVE:", error.message);
         throw error;
       }
 
-      console.log("✅ BROADCAST SAVED:", upsertData);
+      console.log("✅ BROADCAST SAVED!");
       addToast("Info sistem diperbarui!", "success");
       await fetchAnnouncement(); // Refresh tampilan
       logActivity("UPDATE INFO", "Mengupdate pengumuman sistem");
