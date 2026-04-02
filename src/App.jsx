@@ -252,6 +252,11 @@ function App() {
           message: data.message,
           is_active: data.is_active
         });
+        // 👇 FIX BUG: Sync form edit dengan data dari DB
+        setEditAnnouncement({
+          message: data.message,
+          is_active: data.is_active
+        });
       }
     } catch (err) {
       console.error("Critical Error:", err);
